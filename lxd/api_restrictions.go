@@ -25,7 +25,14 @@ Return a list of restrictions features available for LXD
 */
 func restrictionsGet(d *Daemon, r *http.Request) response.Response {
 	restrictions := []api.RestrictionsList{}
-	return restrictions
+	err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+		// Retrieve full list of project feature restrictions
+		restrictions, err = tx.RestrictionsList()
+		if err != nil {
+			return response.InternalError(err)
+		}
+		return restrictions
+	})
 }
 
 /**
@@ -33,12 +40,20 @@ Return all current restrictions for a given project by JSON format
 */
 func restrictionsProjectGet(d *Daemon, r *http.Request) response.Response {
 	// Get project name
-	project_name := projectParam(r)
+	project_name := mux.Vars(r)["project_name"]
 
-	var result map[string][]string 
+	// var result map[string][]string 
 
 	err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
-		restrictionsEnabled, err := projecttx.RestrictionsEnabled(project_name)
+		// Verify given project name is valid and exists
+		project_id, err = tx.ProjectExists(project_name)
+		if err != nil {
+			return errors.Wrap(err, "Given project name does not exist")
+		}
+
+		// Returns boolean response for whether restrictions 
+		// have been enabled for a given project
+		restrictionsEnabled, err := tx.RestrictionsEnabled(project_name)
 
 		if err != nil {
 			return errors.Wrap(err, "Check project restrictions enabled")
@@ -47,7 +62,9 @@ func restrictionsProjectGet(d *Daemon, r *http.Request) response.Response {
 		if !restrictionsEnabled {
 			return response.Response("Restrictions have not been enabled for this project!")
 		}
-
+		// Upon successful retrieve of restrictions,
+		// returns list of restrictions, else error response
+		return tx.RestrictionsForProject(project_name)
 	})
 }
 
